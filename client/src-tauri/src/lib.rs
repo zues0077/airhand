@@ -420,6 +420,8 @@ pub(crate) fn on_tray_left_click(app: &AppHandle) {
 struct AppInfo {
     version: &'static str,
     server: String,
+    /// 配置的证书指纹（空 = 第一次连接时记下），设置面板回填用
+    server_fp: String,
     pinned: bool,
     hostname: String,
     lang: Lang,
@@ -428,14 +430,84 @@ struct AppInfo {
 }
 
 fn app_info() -> AppInfo {
+    let s = config::settings();
     AppInfo {
         version: config::VERSION,
-        server: config::settings().server.clone(),
+        server: s.server.clone(),
+        server_fp: s.server_fp.clone(),
         pinned: config::pinned(),
         hostname: sysinfo::host_identity().0,
         lang: i18n::current(),
         config_path: config::path().map(|p| p.display().to_string()),
     }
+}
+
+/// 切换中转服务器：写配置 + 不重启进程重连。Windows 安装版由服务写文件，
+/// 成功后把新地址/指纹/代数随 `AgentStatus` 推回来；其它情况本进程直接写。
+#[tauri::command]
+async fn set_relay(
+    server: String,
+    fp: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), Problem> {
+    // Windows 安装版：托盘没有写权限，交给服务（它写文件并让被控端重连）。
+    // 等到服务把新地址/指纹/代数推回来才算成功，避免界面显示"已生效"却还是旧地址。
+    #[cfg(windows)]
+    if state.service_mode {
+        let before = state.hub.borrow().relay_epoch;
+        let sv = state.services.lock().unwrap();
+        let sent = if let Some(Hosting::Service(link)) = &sv.host {
+            link.send(winsvc::ipc::ToAgent::SetRelay {
+                server: server.clone(),
+                fp: fp.clone(),
+            });
+            true
+        } else {
+            false
+        };
+        drop(sv);
+        if sent {
+            // 服务写成功后会随 AgentStatus 推回更大的 relay_epoch（托盘同步进程内存副本）
+            let mut rx = state.hub.subscribe();
+            let wait = tokio::time::timeout(Duration::from_secs(8), async {
+                while rx.borrow().relay_epoch == before {
+                    if rx.changed().await.is_err() {
+                        return false;
+                    }
+                }
+                true
+            })
+            .await;
+            return match wait {
+                Ok(true) => Ok(()),
+                Ok(false) => Err(Problem::failed("the host service disconnected during the switch")),
+                Err(_) => Err(Problem::failed("timed out waiting for the host service to switch relay")),
+            };
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = &state;
+
+    // 本进程有写权限：先落盘，再用新 link 重连，最后通知会话（代数变了旧会话退出）
+    tokio::task::spawn_blocking(move || config::set_relay(&server, &fp))
+        .await
+        .map_err(|e| Problem::failed(format!("relay switch task failed: {e}")))?
+        .map_err(Problem::failed)?;
+    let mut sv = state.services.lock().unwrap();
+    if let Some(Hosting::InProcess(h)) = &mut sv.host {
+        h.switch_relay(config::link());
+    }
+    drop(sv);
+    state
+        .hub
+        .send_modify(|s| s.relay_epoch = config::relay_epoch());
+    Ok(())
+}
+
+/// 取配置里的证书指纹（设置面板回填用）
+#[tauri::command]
+fn get_relay_fp() -> String {
+    config::settings().server_fp.clone()
 }
 
 /// 我的设备（配置文件里本账户的）
@@ -568,6 +640,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             console_url,
+            set_relay,
+            get_relay_fp,
             set_language,
             clipboard_text,
             set_fullscreen,

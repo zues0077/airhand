@@ -121,6 +121,8 @@ export interface AppInfo {
   version: string;
   /** 中转服务器地址 */
   server: string;
+  /** 配置的证书指纹（空 = 第一次连接时记下） */
+  serverFp?: string;
   pinned: boolean;
   /** 被控端看到的本控制端名称（桌面版是计算机名） */
   hostname: string;
@@ -300,6 +302,8 @@ export interface Backend {
   localClipboardText(): Promise<string>;
   /** 切换到被控端（只有桌面版） */
   switchToHost(): Promise<void>;
+  /** 软件内切换中转（只有桌面版）；成功返回后新地址已落盘并生效 */
+  setRelay(server: string, fp: string): Promise<void>;
   /** 切换界面语言（桌面版同时作用于托盘菜单） */
   setLanguage(lang: Lang): Promise<void>;
   /** 语言被切换（包括在托盘菜单里切换） */

@@ -115,6 +115,9 @@ async fn connection(tcp: TcpStream, gate: Arc<Gate>, app: AppHandle) {
         return;
     };
     let mut mode = state.hub.subscribe();
+    // 单独订阅切换代数：切中转后旧会话必须结束，新的控制台会话才会用新 link
+    let mut relay = state.hub.subscribe();
+    let mine = relay.borrow().relay_epoch;
     let setup = Setup {
         link: config::link(),
         identity,
@@ -133,6 +136,10 @@ async fn connection(tcp: TcpStream, gate: Arc<Gate>, app: AppHandle) {
         },
         // 切回被控端：控制端服务和它的会话马上停下
         _ = mode.wait_for(|s| s.mode != Mode::Controller) => {}
+        // 切换中转：旧会话结束（控制台窗口还在，用户重新连接时用新 link）
+        _ = relay.wait_for(|s| s.relay_epoch != mine) => {
+            info!("relay switched, closing the console session");
+        }
     }
 }
 

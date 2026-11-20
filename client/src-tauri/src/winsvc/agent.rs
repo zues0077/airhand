@@ -67,6 +67,7 @@ pub fn run(args: &[String]) -> i32 {
         cmds: host.commands(),
         autostart: Arc::new(watch::Sender::new(config::settings().autostart)),
         gate: host.gate().clone(),
+        switch: host.switcher(),
     };
     tauri::async_runtime::spawn(super::ipc::serve(hub, agent));
 

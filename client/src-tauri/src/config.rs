@@ -25,7 +25,8 @@
 //!   密钥和配对码加密保存（见 [`secret`]）。
 
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, LazyLock, Mutex, MutexGuard, RwLock};
 use std::time::Duration;
 
 use airhand_link::LinkConfig;
@@ -183,25 +184,57 @@ pub fn persistent() -> bool {
     path().is_some()
 }
 
-/// 进程启动时读到的配置（之后的修改，例如更换控制码，由各自的模块记在内存里）。
-pub fn settings() -> &'static Settings {
-    static SETTINGS: LazyLock<Settings> = LazyLock::new(|| {
-        let Some(path) = path() else {
-            return Settings::default();
-        };
-        match std::fs::read_to_string(&path) {
-            Ok(text) => parse(&text).unwrap_or_else(|e| {
-                error!("{}: {e:#}; using the defaults", path.display());
-                Settings::default()
-            }),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Settings::default(),
-            Err(e) => {
-                error!("can't read {}: {e}; using the defaults", path.display());
-                Settings::default()
-            }
+/// 启动时从磁盘读一次配置。读不到 / 写坏了都用默认值（和改动前的行为一致）。
+fn load_settings() -> Settings {
+    let Some(path) = path() else {
+        return Settings::default();
+    };
+    match std::fs::read_to_string(&path) {
+        Ok(text) => parse(&text).unwrap_or_else(|e| {
+            error!("{}: {e:#}; using the defaults", path.display());
+            Settings::default()
+        }),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Settings::default(),
+        Err(e) => {
+            error!("can't read {}: {e}; using the defaults", path.display());
+            Settings::default()
         }
-    });
-    &SETTINGS
+    }
+}
+
+/// 中转配置与连接参数的可变状态。切换中转时整体替换，进程不重启。
+///
+/// Windows 安装版里托盘进程和服务进程各持有一份：文件由有写权限的一侧（服务）写，
+/// 另一侧收到成功回执后只更新自己的内存副本（见 [`apply_relay`]）。
+struct RelayState {
+    settings: RwLock<Arc<Settings>>,
+    link: RwLock<Arc<LinkConfig>>,
+    /// 每次成功切换 +1；长连接看到代数变了就退出，用新 link 重连
+    epoch: AtomicU64,
+}
+
+static RELAY: LazyLock<RelayState> = LazyLock::new(|| {
+    let s = Arc::new(load_settings());
+    let l = build_link(&s);
+    RelayState {
+        settings: RwLock::new(s),
+        link: RwLock::new(l),
+        epoch: AtomicU64::new(0),
+    }
+});
+
+/// 当前配置（切换中转后返回新值）。调用点原来拿 `&'static Settings`，改成 `Arc` 后可 clone 持有。
+pub fn settings() -> Arc<Settings> {
+    RELAY
+        .settings
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
+}
+
+/// 当前中转切换代数（会话据此判断自己是否过期）
+pub fn relay_epoch() -> u64 {
+    RELAY.epoch.load(Ordering::SeqCst)
 }
 
 fn parse(text: &str) -> Result<Settings> {
@@ -239,27 +272,122 @@ fn parse(text: &str) -> Result<Settings> {
     Ok(s)
 }
 
+/// 由一份配置构造连接参数（`set_relay` / 启动时共用）
+fn build_link(s: &Settings) -> Arc<LinkConfig> {
+    let (name, os) = crate::sysinfo::host_identity();
+    Arc::new(
+        LinkConfig::new(s.server.clone(), &s.server_fp, name.clone(), os.clone())
+            .map(|l| l.with_store(Arc::new(FileTrust::default())))
+            .unwrap_or_else(|e| {
+                // 指纹写错了：不能因此就不校验证书。用一个不可能对得上的指纹，连接时报"证书指纹不匹配"
+                error!("config.toml: invalid server_fp ({e:#}), refusing to connect");
+                LinkConfig {
+                    server: s.server.clone(),
+                    trust: Trust::Pinned([0; 32]),
+                    name,
+                    os,
+                }
+            }),
+    )
+}
+
 /// 连接中转服务器用的配置：服务器地址与指纹，加上本机名称（被控端和控制端共用）
 pub fn link() -> Arc<LinkConfig> {
-    static LINK: LazyLock<Arc<LinkConfig>> = LazyLock::new(|| {
-        let s = settings();
-        let (name, os) = crate::sysinfo::host_identity();
-        Arc::new(
-            LinkConfig::new(s.server.clone(), &s.server_fp, name.clone(), os.clone())
-                .map(|l| l.with_store(Arc::new(FileTrust::default())))
-                .unwrap_or_else(|e| {
-                    // 指纹写错了：不能因此就不校验证书。用一个不可能对得上的指纹，连接时报"证书指纹不匹配"
-                    error!("config.toml: invalid server_fp ({e:#}), refusing to connect");
-                    LinkConfig {
-                        server: s.server.clone(),
-                        trust: Trust::Pinned([0; 32]),
-                        name,
-                        os,
-                    }
-                }),
-        )
-    });
-    LINK.clone()
+    RELAY
+        .link
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
+}
+
+/// `host:port`：域名或 IPv4，端口 1–65535。不允许 scheme / 路径 / 空白。
+fn valid_server(server: &str) -> bool {
+    let server = server.trim();
+    let Some((host, port)) = server.rsplit_once(':') else {
+        return false;
+    };
+    if host.is_empty()
+        || host.chars().any(|c| {
+            !(c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_' || c == '[' || c == ']')
+        })
+    {
+        return false;
+    }
+    port.parse::<u16>().is_ok_and(|p| p != 0)
+}
+
+/// 校验并解析新指纹：空串表示"第一次连接时记下"，其余必须是 64 位十六进制（允许 `:` / 空白）。
+fn check_fp(fp: &str) -> Result<()> {
+    if fp.trim().is_empty() {
+        return Ok(());
+    }
+    parse_fingerprint(fp)
+        .map_err(|e| anyhow::anyhow!("invalid certificate fingerprint: {e}"))?;
+    Ok(())
+}
+
+/// 用新的 server / 指纹重建一份 Settings 与 LinkConfig（不落盘）
+fn relay_from(s: &Settings, server: &str, fp: &str) -> (Arc<Settings>, Arc<LinkConfig>) {
+    let mut s = s.as_ref().clone();
+    s.server = server.trim().to_string();
+    s.server_fp = fp.trim().to_string();
+    let s = Arc::new(s);
+    let l = build_link(&s);
+    (s, l)
+}
+
+/// 提交新状态：写内存 + 代数 +1。调用前必须已经落盘成功（或确认无需落盘）。
+fn commit(s: Arc<Settings>, l: Arc<LinkConfig>) {
+    *RELAY.settings.write().unwrap_or_else(|e| e.into_inner()) = s;
+    *RELAY.link.write().unwrap_or_else(|e| e.into_inner()) = l;
+    RELAY.epoch.fetch_add(1, Ordering::SeqCst);
+}
+
+/// 改中转地址与指纹：**先落盘，成功后再换内存**。文件写失败则保持旧状态。
+/// 只在有写权限的进程里调用（非 Windows 安装版的托盘进程 / Windows 安装版的服务进程）。
+pub fn set_relay(server: &str, fp: &str) -> Result<()> {
+    let server = server.trim();
+    let fp = fp.trim();
+    anyhow::ensure!(valid_server(server), "invalid server address (expect host:port)");
+    check_fp(fp)?;
+    edit(|doc| {
+        doc["server"] = toml_edit::value(server);
+        doc["server_fp"] = toml_edit::value(fp);
+        Ok(())
+    })?;
+    // 重新读回来（复用 parse），保证内存和文件完全一致。
+    // 再核对一次：FROZEN（卸载中）或别的原因导致 edit 没写进去时，不能让内存假装切换成功。
+    let s = match path() {
+        Some(p) => {
+            let s = parse(&std::fs::read_to_string(p)?)?;
+            anyhow::ensure!(
+                s.server == server && s.server_fp == fp,
+                "config.toml didn't accept the new relay (file may be read-only)"
+            );
+            s
+        }
+        None => {
+            let (s, l) = relay_from(&settings(), server, fp);
+            commit(s, l);
+            return Ok(());
+        }
+    };
+    let s = Arc::new(s);
+    let l = build_link(&s);
+    commit(s, l);
+    Ok(())
+}
+
+/// 只有内存副本的一侧用（Windows 安装版的托盘进程收到服务写成功的回执后调用）。
+/// 不写文件，避免两侧写权限不一致时失败。
+pub fn apply_relay(server: &str, fp: &str) -> Result<()> {
+    let server = server.trim();
+    let fp = fp.trim();
+    anyhow::ensure!(valid_server(server), "invalid server address (expect host:port)");
+    check_fp(fp)?;
+    let (s, l) = relay_from(&settings(), server, fp);
+    commit(s, l);
+    Ok(())
 }
 
 /// 是否配置了固定的服务器证书指纹（否则第一次连接时记下，控制台据此说明）
@@ -1552,5 +1680,51 @@ mod tests {
     fn bundle_id_matches_tauri_conf() {
         let conf = include_str!("../tauri.conf.json");
         assert!(conf.contains(&format!("\"identifier\": \"{BUNDLE_ID}\"")));
+    }
+
+    /// 中转地址校验：只认 host:port（1–65535），不认 scheme / 路径 / 空端口
+    #[test]
+    fn relay_server_validation() {
+        for ok in ["airhand.fnosliu.de5.net:52141", "39.105.40.56:4433", "localhost:4433"] {
+            assert!(valid_server(ok), "{ok}");
+        }
+        for bad in [
+            "https://39.105.40.56:4433",
+            "example.com",
+            "example.com:0",
+            "example.com:65536",
+            "example.com:4433/path",
+            "user@example.com:4433",
+            ":4433",
+        ] {
+            assert!(!valid_server(bad), "{bad}");
+        }
+    }
+
+    /// 指纹校验：空 = 首次连接时记下，其余必须是 64 位十六进制（和解析器一致）
+    #[test]
+    fn relay_fingerprint_validation() {
+        let hex = "ab".repeat(32);
+        assert!(check_fp("").is_ok());
+        assert!(check_fp(&hex).is_ok());
+        assert!(check_fp(&["AB"; 32].join(":")).is_ok());
+        assert!(check_fp(&"ab".repeat(31)).is_err());
+        assert!(check_fp("sha256:abc").is_err());
+    }
+
+    /// relay_from 只改 server/fp，其余配置（控制码、配对开关）原样保留
+    #[test]
+    fn relay_from_keeps_other_settings() {
+        let mut s = Settings::default();
+        s.autostart = false;
+        s.access = Access::Open;
+        let fp = "ab".repeat(32);
+        let (new, l) = relay_from(&s, "example.com:9999", &fp);
+        assert_eq!(new.server, "example.com:9999");
+        assert_eq!(new.server_fp, fp);
+        assert_eq!(new.access, Access::Open);
+        assert!(!new.autostart);
+        assert!(l.pinned());
+        assert_eq!(s.server, DEFAULT_SERVER); // 原配置没被改
     }
 }

@@ -1,7 +1,9 @@
 package app.airhand.android.ui.phone
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -23,8 +25,10 @@ import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.material.icons.outlined.VerifiedUser
 import androidx.compose.material.icons.automirrored.outlined.VolumeUp
+import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHostState
@@ -50,6 +54,7 @@ import app.airhand.android.R
 import app.airhand.android.core.Code
 import app.airhand.android.core.Native
 import app.airhand.android.core.Preset
+import app.airhand.android.core.RelayPresets
 import app.airhand.android.core.VideoPriority
 import app.airhand.android.data.TouchMode
 import app.airhand.android.host.HostService
@@ -86,6 +91,18 @@ fun SettingsTab(modifier: Modifier, snackbar: SnackbarHostState) {
         )
 
         SectionTitle(stringResource(R.string.settings_server))
+        // 一键预设：点开确认后复用上游已有的 updateSettings 热切换（进程不重启）
+        Row(
+            modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Button(onClick = { dialog = "relaySelf" }) {
+                Text(stringResource(R.string.relay_preset_self))
+            }
+            OutlinedButton(onClick = { dialog = "relayPublic" }) {
+                Text(stringResource(R.string.relay_preset_public))
+            }
+        }
         Item(Icons.Outlined.Dns, stringResource(R.string.server_address), s.server) { dialog = "server" }
         val learned = s.learnedFp
         Item(
@@ -158,6 +175,26 @@ fun SettingsTab(modifier: Modifier, snackbar: SnackbarHostState) {
     }
 
     when (dialog) {
+        "relaySelf", "relayPublic" -> {
+            val p = if (dialog == "relaySelf") RelayPresets.self else RelayPresets.public
+            ConfirmDialog(
+                title = stringResource(R.string.relay_switch_title, stringResource(
+                    if (dialog == "relaySelf") R.string.relay_preset_self else R.string.relay_preset_public
+                )),
+                text = stringResource(R.string.relay_switch_notice),
+                confirm = stringResource(R.string.relay_switch_ok),
+                onDismiss = { dialog = null },
+                destructive = true,
+                onConfirm = {
+                    dialog = null
+                    // 上游 updateSettings 已实现热切换：断开旧会话、重建控制端和被控端，进程不重启
+                    app.updateSettings {
+                        it.copy(server = p.server, fingerprint = p.fp, trustedServer = "", trustedFp = "")
+                    }
+                    scope.launch { snackbar.showSnackbar(ctx.getString(R.string.relay_switch_done)) }
+                },
+            )
+        }
         "server" -> EditTextDialog(
             title = stringResource(R.string.server_address),
             initial = s.server,

@@ -40,6 +40,24 @@ export default {
   "server.unpinned": "首次连接时信任",
   "server.unpinnedHint": "未配置证书指纹：第一次连接时记住了服务器的证书，之后证书变了就拒绝连接",
 
+  // 软件内的中转设置面板
+  "relay.title": "中转设置",
+  "relay.current": "当前生效地址",
+  "relay.noServer": "未配置中转地址",
+  "relay.presets": "快捷预设",
+  "relay.preset.self": "自建中转",
+  "relay.preset.public": "公共中转",
+  "relay.fp": "证书指纹",
+  "relay.fpPlaceholder": "64 位十六进制；留空 = 首次连接时信任",
+  "relay.fpHint": "只允许十六进制，冒号和空格会被忽略",
+  "relay.serverHint": "填 host:port（UDP），不要带 https://",
+  "relay.notice": "切换会断开当前连接，并分配新的控制码；“我的设备”需要重新添加。",
+  "relay.apply": "保存并应用",
+  "relay.applying": "正在应用…",
+  "relay.done": "已生效",
+  "relay.invalidServer": "地址格式不对，应为 host:port（端口 1–65535）",
+  "relay.invalidFp": "证书指纹必须是 64 位十六进制，或留空",
+
   // 设置（标签栏右侧的齿轮）
   "menu.title": "设置",
   "menu.version": "v{version} · 控制端模式",
@@ -49,6 +67,7 @@ export default {
   "menu.language": "语言",
   "menu.config": "配置文件",
   "menu.configHint": "设置和我的设备都保存在这个文件里",
+  "menu.configHintNew": "无需手动编辑：地址和指纹请在“中转设置”里修改，本文件由程序维护",
   "menu.copy": "复制",
   "menu.copied": "已复制",
   "menu.toHost": "切换为被控端",

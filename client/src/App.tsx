@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { ConfirmDialog } from "./components/ConfirmDialog";
+import { SettingsDialog } from "./components/SettingsDialog";
 import { ConnectView } from "./components/ConnectView";
 import { GridView } from "./components/GridView";
 import { SessionView } from "./components/SessionView";
@@ -126,6 +127,7 @@ function Console() {
         )}
       </main>
       <ConfirmDialog />
+      <SettingsDialog />
     </div>
   );
 }
