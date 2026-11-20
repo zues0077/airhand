@@ -1,0 +1,29 @@
+{
+  "total_count": 2,
+  "workflows": [
+    {
+      "id": 424758006,
+      "node_id": "W_kwDOV1OIDM4ZUUr2",
+      "name": "Build Android (relay-switch)",
+      "path": ".github/workflows/build-android.yml",
+      "state": "active",
+      "created_at": "2026-11-20T15:58:14.000+08:00",
+      "updated_at": "2026-11-20T15:58:14.000+08:00",
+      "url": "https://api.github.com/repos/zues0077/airhand/actions/workflows/424758006",
+      "html_url": "https://github.com/zues0077/airhand/blob/main/.github/workflows/build-android.yml",
+      "badge_url": "https://github.com/zues0077/airhand/workflows/Build%20Android%20(relay-switch)/badge.svg"
+    },
+    {
+      "id": 424758008,
+      "node_id": "W_kwDOV1OIDM4ZUUr4",
+      "name": "Build Desktop (relay-switch)",
+      "path": ".github/workflows/build-desktop.yml",
+      "state": "active",
+      "created_at": "2026-11-20T15:58:14.000+08:00",
+      "updated_at": "2026-11-20T15:58:14.000+08:00",
+      "url": "https://api.github.com/repos/zues0077/airhand/actions/workflows/424758008",
+      "html_url": "https://github.com/zues0077/airhand/blob/main/.github/workflows/build-desktop.yml",
+      "badge_url": "https://github.com/zues0077/airhand/workflows/Build%20Desktop%20(relay-switch)/badge.svg"
+    }
+  ]
+}

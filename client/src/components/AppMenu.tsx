@@ -8,7 +8,7 @@ import { api } from "../lib/api";
 import { focusActive, requestToHost } from "../lib/actions";
 import { setLang, useLang, useT, type Lang } from "../lib/i18n";
 import { problemText } from "../lib/messages";
-import { serverStatus, useStore } from "../lib/store";
+import { serverStatus, store, useStore } from "../lib/store";
 import { IconCheck, IconChevron, IconCopy, IconKeyboard, IconServer, IconSettings, IconSwap, IconWarn } from "./Icons";
 import { Logo } from "./Logo";
 import { Popover } from "./Popover";
@@ -72,15 +72,33 @@ function AppMenu({ onClose }: { onClose: () => void }) {
           <span className="am-label">{t("menu.language")}</span>
           <LangSwitch />
         </div>
-        {/* 设置、本机的控制码、我的设备都在这个文件里 */}
+        {/* 桌面版在中转设置面板里改，不用再编辑这个文件；路径只作展示 */}
         {app?.configPath && (
-          <div className="am-row am-stack" title={t("menu.configHint")}>
+          <div className="am-row am-stack" title={t("menu.configHintNew")}>
             <div className="am-row-line">
               <span className="am-label">{t("menu.config")}</span>
               <CopyButton text={app.configPath} />
             </div>
             <div className="am-path">{breakablePath(app.configPath)}</div>
           </div>
+        )}
+        {!web && (
+          <button
+            className="am-item"
+            onClick={() => {
+              onClose();
+              store.setRelayDialog(true);
+            }}
+          >
+            <span className="am-item-icon">
+              <IconServer size={16} />
+            </span>
+            <span className="am-item-text">
+              {t("relay.title")}
+              <span className="muted small block">{app?.server || t("relay.noServer")}</span>
+            </span>
+            <IconChevron size={15} className="am-chevron" />
+          </button>
         )}
       </div>
 

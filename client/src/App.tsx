@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { ConfirmDialog } from "./components/ConfirmDialog";
+import { SettingsDialog } from "./components/SettingsDialog";
 import { ConnectView } from "./components/ConnectView";
 import { GridView } from "./components/GridView";
 import { Popouts } from "./components/PopoutView";
@@ -127,6 +128,7 @@ function Console() {
         )}
       </main>
       <ConfirmDialog />
+      <SettingsDialog />
       {/* 放在单独窗口里的显示器：界面渲染到那些窗口里（portal） */}
       <Popouts />
     </div>

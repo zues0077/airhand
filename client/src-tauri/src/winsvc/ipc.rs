@@ -36,6 +36,7 @@ use windows::Win32::System::RemoteDesktop::{ProcessIdToSessionId, WTSGetActiveCo
 use windows::Win32::System::Threading::GetCurrentProcessId;
 use windows::core::HSTRING;
 
+use crate::config;
 use crate::host::HostCmd;
 use crate::host::gate::DesktopGate;
 use crate::status::{HostStatus, ServiceStatus, StatusHub};
@@ -58,11 +59,21 @@ fn pipe_name(session: u32) -> String {
     format!(r"\\.\pipe\airhand-host-{session}")
 }
 
+/// 中转切换后的状态：服务写文件成功后随 [`AgentStatus`] 推给托盘，
+/// 托盘据此更新自己的内存副本（托盘在安装目录里没有写权限）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RelayStatus {
+    pub server: String,
+    pub fp: String,
+    pub epoch: u64,
+}
+
 /// 被控端 → 托盘
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentStatus {
     pub host: HostStatus,
     pub autostart: bool,
+    pub relay: RelayStatus,
 }
 
 /// 托盘 → 被控端
@@ -90,6 +101,11 @@ pub enum ToAgent {
     /// 托盘菜单、控制台里选的界面语言：写进 config.toml，被控端自己也换成它（它写进配置文件的说明按这个语言写）
     SetLanguage {
         lang: crate::i18n::Lang,
+    },
+    /// 切换中转：服务有写权限，写 config.toml 并用新 link 重连被控端
+    SetRelay {
+        server: String,
+        fp: String,
     },
 }
 
@@ -149,6 +165,8 @@ pub struct Agent {
     pub cmds: mpsc::UnboundedSender<HostCmd>,
     pub autostart: Arc<watch::Sender<bool>>,
     pub gate: Arc<DesktopGate>,
+    /// 切换中转时让被控端用新 link 重连（HostService 的切换入口）
+    pub switch: mpsc::UnboundedSender<Arc<airhand_link::LinkConfig>>,
 }
 
 /// 在本会话的管道上接受托盘的连接
@@ -209,9 +227,15 @@ async fn serve_tray(pipe: NamedPipeServer, hub: StatusHub, agent: Agent) -> Resu
     let mut auto_rx = agent.autostart.subscribe();
     let mut last: Option<AgentStatus> = None;
     loop {
+        let s = config::settings();
         let status = AgentStatus {
             host: hub_rx.borrow_and_update().host.clone(),
             autostart: *auto_rx.borrow_and_update(),
+            relay: RelayStatus {
+                server: s.server.clone(),
+                fp: s.server_fp.clone(),
+                epoch: config::relay_epoch(),
+            },
         };
         if last.as_ref() != Some(&status) {
             send_line(&mut w, &status).await?;
@@ -290,6 +314,19 @@ async fn handle(msg: ToAgent, agent: &Agent) {
                 Ok(Ok(())) => debug!(n, "saved the devices"),
                 Ok(Err(e)) => warn!("can't save the devices: {e:#}"),
                 Err(e) => warn!("can't save the devices: {e}"),
+            }
+        }
+        ToAgent::SetRelay { server, fp } => {
+            // 服务有写权限：写文件成功后 config 里已经是新值，再让被控端重连。
+            // 托盘从下一条 AgentStatus 读到新 server/fp/epoch，自己只更新内存副本。
+            let r = tokio::task::spawn_blocking(move || crate::config::set_relay(&server, &fp)).await;
+            match r {
+                Ok(Ok(())) => {
+                    info!(server = %crate::config::settings().server, "relay switched");
+                    let _ = agent.switch.send(crate::config::link());
+                }
+                Ok(Err(e)) => warn!("can't switch relay: {e:#}"),
+                Err(e) => warn!("can't switch relay: {e}"),
             }
         }
     }
@@ -454,8 +491,20 @@ async fn talk(
                 let Some(line) = line? else { return Ok(()) };
                 let st: AgentStatus = serde_json::from_str(&line)?;
                 *seen_running = true;
+                // 服务改了中转：托盘没有写权限，只把新 server/fp 同步到自己的内存副本。
+                // 用地址+指纹判断是否变化（不用 epoch 比较：服务重启后代数会归零，两边不同步）。
+                // 放在 send_modify 之前，确保 hub 的 relay_epoch 更新时 link 已经是新值。
+                {
+                    let local = config::settings();
+                    if local.server != st.relay.server || local.server_fp != st.relay.fp {
+                        if let Err(e) = config::apply_relay(&st.relay.server, &st.relay.fp) {
+                            warn!("can't apply the relay from the service: {e:#}");
+                        }
+                    }
+                }
                 hub.send_modify(|s| {
                     s.host = st.host;
+                    s.relay_epoch = st.relay.epoch;
                     s.service = Some(ServiceStatus {
                         connected: true,
                         running: true,
@@ -483,11 +532,13 @@ mod tests {
         let name = format!(r"\\.\pipe\airhand-test-{:016x}", rand::random::<u64>());
         let hub = status::new_hub();
         let (cmd_tx, mut cmd_rx) = mpsc::unbounded_channel();
+        let (switch_tx, _switch_rx) = mpsc::unbounded_channel();
         let autostart = Arc::new(watch::Sender::new(true));
         let agent = Agent {
             cmds: cmd_tx,
             autostart,
             gate: DesktopGate::load(hub.clone()),
+            switch: switch_tx,
         };
         tokio::spawn(serve_on(name.clone(), hub.clone(), agent));
 

@@ -5,8 +5,8 @@ plugins {
 }
 
 // 产品版本与桌面客户端一致（client/src-tauri/tauri.conf.json）
-val appVersion = "0.3.1"
-val appVersionCode = 7
+val appVersion = "0.3.1-relay-switch"
+val appVersionCode = 8
 
 /** 构建参数：先找 Gradle 属性（-Pairhand.server=...），再找环境变量（AIRHAND_SERVER） */
 fun setting(prop: String, env: String): String? =

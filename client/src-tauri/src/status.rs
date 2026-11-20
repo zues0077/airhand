@@ -26,6 +26,8 @@ pub struct AppStatus {
     pub controller: ServerState,
     /// Windows 安装版：被控端运行在系统服务里（见 [`crate::winsvc`]）；被控端在本进程里运行时为 `None`
     pub service: Option<ServiceStatus>,
+    /// 中转切换代数：每次成功切换 +1，长连接看到不等于自己的代数就结束、用新 link 重连
+    pub relay_epoch: u64,
     /// macOS：登录时自动启动（见 [`crate::login_item`]）。不是从 App 运行（开发时直接运行可执行文件）、
     /// 或者还没查到时为 `None`
     #[cfg(target_os = "macos")]
@@ -39,6 +41,7 @@ impl Default for AppStatus {
             host: HostStatus::default(),
             controller: ServerState::Connecting,
             service: None,
+            relay_epoch: 0,
             #[cfg(target_os = "macos")]
             login_item: None,
         }

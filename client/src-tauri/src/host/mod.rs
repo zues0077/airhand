@@ -102,8 +102,12 @@ pub(crate) fn missing_permission(e: &anyhow::Error) -> bool {
 }
 
 pub struct HostService {
+    /// 监督任务：接收本机命令和"切换中转"，管理当前那一轮连接任务
     task: JoinHandle<()>,
+    /// 托盘菜单发来的命令入口（长期不变，切换中转后仍然有效）
     cmd: mpsc::UnboundedSender<HostCmd>,
+    /// 切换中转的入口（托盘进程直接调用 / Windows 服务收到 IPC 后调用）
+    switch: mpsc::UnboundedSender<Arc<airhand_link::LinkConfig>>,
     gate: Arc<DesktopGate>,
 }
 
@@ -113,12 +117,35 @@ impl HostService {
         clock::init();
         let gate = DesktopGate::load(hub.clone());
         let (cmd, rx) = mpsc::unbounded_channel();
-        let task = tauri::async_runtime::spawn(run(hub, gate.clone(), rx));
-        Self { task, cmd, gate }
+        let (switch, switch_rx) = mpsc::unbounded_channel();
+        let task = tauri::async_runtime::spawn(supervise(
+            hub,
+            gate.clone(),
+            rx,
+            switch_rx,
+            config::link(),
+        ));
+        Self {
+            task,
+            cmd,
+            switch,
+            gate,
+        }
     }
 
     pub fn send(&self, c: HostCmd) {
         let _ = self.cmd.send(c);
+    }
+
+    /// 热切换中转：旧连接任务被中止（QUIC 会话随之关闭），用新 link 重连，进程不重启。
+    pub fn switch_relay(&self, link: Arc<airhand_link::LinkConfig>) {
+        let _ = self.switch.send(link);
+    }
+
+    /// 交给系统服务：IPC 收到托盘的切换命令后调用（见 [`crate::winsvc`]）
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub fn switcher(&self) -> mpsc::UnboundedSender<Arc<airhand_link::LinkConfig>> {
+        self.switch.clone()
     }
 
     /// 本机的身份、配对码、配对过的控制端（托盘菜单里换配对码、忘掉配对过的控制端）
@@ -140,12 +167,60 @@ impl Drop for HostService {
     }
 }
 
-async fn run(hub: StatusHub, gate: Arc<DesktopGate>, cmds: mpsc::UnboundedReceiver<HostCmd>) {
+/// 常驻监督任务：外部命令入口和切换入口都是长期的，内层连接任务每次切换重建。
+///
+/// `airhand_link::host::run` 自己会重连掉线，但 link 是启动时传进去的、运行中不变；
+/// 换中转只能中止它再用新 link 跑一遍。中止时 `JoinHandle` 的 Drop 会关掉 QUIC 会话。
+async fn supervise(
+    hub: StatusHub,
+    gate: Arc<DesktopGate>,
+    mut cmds: mpsc::UnboundedReceiver<HostCmd>,
+    mut switch: mpsc::UnboundedReceiver<Arc<airhand_link::LinkConfig>>,
+    link: Arc<airhand_link::LinkConfig>,
+) {
+    // 内层任务用的命令通道：切换时换一对，外层的 cmds 接收端始终不变
+    let (inner_tx, inner_rx) = mpsc::unbounded_channel();
+    let mut current = tauri::async_runtime::spawn(run_with(
+        hub.clone(),
+        gate.clone(),
+        inner_rx,
+        link,
+    ));
+    let mut inner_tx = inner_tx;
+    loop {
+        tokio::select! {
+            // 外层收命令，转发给当前内层任务
+            Some(cmd) = cmds.recv() => {
+                let _ = inner_tx.send(cmd);
+            }
+            // 切换中转：中止旧任务、换新的 cmd 通道和 link
+            Some(link) = switch.recv() => {
+                current.abort();
+                let (tx, rx) = mpsc::unbounded_channel();
+                inner_tx = tx;
+                current = tauri::async_runtime::spawn(run_with(
+                    hub.clone(), gate.clone(), rx, link,
+                ));
+            }
+            // 内层任务结束（正常运行中它自己会重连，只有被中止才会到这里）
+            _ = &mut current => {
+                return;
+            }
+        }
+    }
+}
+
+async fn run_with(
+    hub: StatusHub,
+    gate: Arc<DesktopGate>,
+    cmds: mpsc::UnboundedReceiver<HostCmd>,
+    link: Arc<airhand_link::LinkConfig>,
+) {
     // 保存过的控制码（config.toml）：第一次连接就取回它
     let reclaim = config::settings().code();
     let events = Arc::new(TrayStatus(hub, gate.clone()));
     airhand_link::host::run(
-        config::link(),
+        link,
         config::persistent(),
         reclaim,
         events,

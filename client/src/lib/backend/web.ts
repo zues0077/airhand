@@ -201,6 +201,7 @@ class WebConsole extends ConsoleLink implements Backend {
 
   // 网页版没有被控端模式、托盘和窗口
   async switchToHost() {}
+  async setRelay() {}
   async setLanguage() {}
   onLangChanged() {
     return () => {};

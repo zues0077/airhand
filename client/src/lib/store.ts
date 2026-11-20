@@ -44,6 +44,8 @@ interface State {
   /** 我的设备能不能保存（桌面版：config.toml）；网页版只在本页面的内存里 */
   devicesSaved: boolean;
   confirm: Confirm;
+  /** 软件内"中转设置"面板是否打开（只有桌面版用） */
+  relayDialog: boolean;
   server: ServerState;
   /**
    * 最近一次连不上服务器的原因。断开后会自动重试（状态在 disconnected 和 connecting 之间来回），
@@ -110,6 +112,7 @@ let state: State = {
   devices: [],
   devicesSaved: false,
   confirm: null,
+  relayDialog: false,
   server: { state: "connecting" },
   serverProblem: null,
   app: null,
@@ -256,6 +259,7 @@ export const store = {
   setDevices: (devices: SavedDevice[], saved = state.devicesSaved) => set({ devices, devicesSaved: saved }),
 
   setConfirm: (confirm: Confirm) => set({ confirm }),
+  setRelayDialog: (relayDialog: boolean) => set({ relayDialog }),
 };
 
 export function useStore<T>(select: (s: State) => T): T {

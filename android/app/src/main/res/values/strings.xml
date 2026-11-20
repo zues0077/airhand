@@ -151,6 +151,12 @@
 
     <!-- Settings -->
     <string name="settings_server">Server</string>
+    <string name="relay_preset_self">My relay</string>
+    <string name="relay_preset_public">Public relay</string>
+    <string name="relay_switch_title">Switch to %1$s?</string>
+    <string name="relay_switch_notice">Switching disconnects the current session. The control code stays the same, but your devices need to be paired again on the new relay.</string>
+    <string name="relay_switch_ok">Switch</string>
+    <string name="relay_switch_done">Relay switched</string>
     <string name="server_address">Server address</string>
     <string name="server_address_hint">The relay server\'s host:port, e.g. relay.example.com:4433</string>
     <string name="server_address_invalid">Use host:port</string>

@@ -2296,3 +2296,63 @@ input[type="range"]::-webkit-slider-thumb {
   background: var(--glass-2);
   box-shadow: none;
 }
+
+/* ── 软件内中转设置面板 ── */
+.relay-dialog {
+  width: min(520px, calc(100% - 40px));
+}
+.relay-current,
+.relay-presets {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+}
+.relay-current .mono {
+  font-size: 12.5px;
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+.relay-preset-row {
+  display: flex;
+  gap: 8px;
+}
+.relay-field {
+  display: block;
+  margin-top: 16px;
+}
+.relay-field .am-label {
+  display: block;
+  margin-bottom: 6px;
+}
+.relay-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--edge-2);
+  background: var(--glass-1);
+  color: var(--text);
+  font-size: 12.5px;
+}
+.relay-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.relay-field .muted {
+  display: block;
+  margin-top: 5px;
+}
+.relay-warn {
+  margin-top: 16px !important;
+  color: #ffc46b !important;
+}
+.relay-error {
+  margin-top: 10px !important;
+  color: #ff9aa4 !important;
+}
+.relay-done {
+  margin-top: 10px !important;
+  color: #7ee0a8 !important;
+}
