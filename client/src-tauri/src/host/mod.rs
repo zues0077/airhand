@@ -155,7 +155,7 @@ impl Drop for HostService {
 async fn supervise(
     hub: StatusHub,
     gate: Arc<DesktopGate>,
-    cmds: mpsc::UnboundedReceiver<HostCmd>,
+    mut cmds: mpsc::UnboundedReceiver<HostCmd>,
     mut switch: mpsc::UnboundedReceiver<Arc<airhand_link::LinkConfig>>,
     link: Arc<airhand_link::LinkConfig>,
 ) {

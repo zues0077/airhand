@@ -328,7 +328,7 @@ fn check_fp(fp: &str) -> Result<()> {
 
 /// 用新的 server / 指纹重建一份 Settings 与 LinkConfig（不落盘）
 fn relay_from(s: &Settings, server: &str, fp: &str) -> (Arc<Settings>, Arc<LinkConfig>) {
-    let mut s = s.as_ref().clone();
+    let mut s = s.clone();
     s.server = server.trim().to_string();
     s.server_fp = fp.trim().to_string();
     let s = Arc::new(s);

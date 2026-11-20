@@ -36,6 +36,7 @@ use windows::Win32::System::RemoteDesktop::{ProcessIdToSessionId, WTSGetActiveCo
 use windows::Win32::System::Threading::GetCurrentProcessId;
 use windows::core::HSTRING;
 
+use crate::config;
 use crate::host::HostCmd;
 use crate::host::gate::DesktopGate;
 use crate::status::{HostStatus, ServiceStatus, StatusHub};
