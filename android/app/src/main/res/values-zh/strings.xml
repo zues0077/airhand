@@ -125,7 +125,7 @@
     <string name="relay_preset_self">自建中转</string>
     <string name="relay_preset_public">公共中转</string>
     <string name="relay_switch_title">切换到%1$s？</string>
-    <string name="relay_switch_notice">当前连接会断开，并分配新的控制码；“我的设备”需要重新添加。</string>
+    <string name="relay_switch_notice">当前连接会断开。控制码不变，但「我的设备」需要在新的中转上重新配对。</string>
     <string name="relay_switch_ok">切换</string>
     <string name="relay_switch_done">已切换中转，控制码已变</string>
     <string name="server_address">服务器地址</string>

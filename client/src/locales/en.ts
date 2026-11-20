@@ -48,7 +48,7 @@ const en: Record<MsgKey, Msg> = {
   "relay.fpPlaceholder": "64 hex digits; empty = trust on first use",
   "relay.fpHint": "Hex digits only; colons and spaces are ignored",
   "relay.serverHint": "Use host:port (UDP), without https://",
-  "relay.notice": "Switching disconnects the current session and assigns a new control code; you'll need to add \"My devices\" again.",
+  "relay.notice": "Switching disconnects the current session. The control code stays the same, but your devices need to be paired again on the new relay.",
   "relay.apply": "Save and apply",
   "relay.applying": "Applying…",
   "relay.done": "Applied",

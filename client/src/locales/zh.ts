@@ -51,7 +51,7 @@ export default {
   "relay.fpPlaceholder": "64 位十六进制；留空 = 首次连接时信任",
   "relay.fpHint": "只允许十六进制，冒号和空格会被忽略",
   "relay.serverHint": "填 host:port（UDP），不要带 https://",
-  "relay.notice": "切换会断开当前连接，并分配新的控制码；“我的设备”需要重新添加。",
+  "relay.notice": "切换会断开当前连接。控制码不变，但「我的设备」需要在新的中转上重新配对。",
   "relay.apply": "保存并应用",
   "relay.applying": "正在应用…",
   "relay.done": "已生效",
