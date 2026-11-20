@@ -128,7 +128,7 @@
     <string name="relay_preset_self">My relay</string>
     <string name="relay_preset_public">Public relay</string>
     <string name="relay_switch_title">Switch to %1$s?</string>
-    <string name="relay_switch_notice">The current session will be disconnected and a new control code assigned. You'll need to add \"My devices\" again.</string>
+    <string name="relay_switch_notice">The current session will be disconnected and a new control code assigned. You will need to add your devices again.</string>
     <string name="relay_switch_ok">Switch</string>
     <string name="relay_switch_done">Relay switched; the control code has changed</string>
     <string name="server_address">Server address</string>

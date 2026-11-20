@@ -442,6 +442,24 @@ fn app_info() -> AppInfo {
     }
 }
 
+/// Windows 安装版：把切换中转的命令发给系统服务（托盘没有写权限）。
+/// 单独做成同步函数：函数返回时锁就释放了，`MutexGuard` 不会跨 `.await`
+/// （否则 Tauri 命令的 future 不是 `Send`，编译不过）。
+#[cfg(windows)]
+fn send_relay_to_service(state: &AppState, server: &str, fp: &str) -> bool {
+    let sv = state.services.lock().unwrap();
+    match &sv.host {
+        Some(Hosting::Service(link)) => {
+            link.send(winsvc::ipc::ToAgent::SetRelay {
+                server: server.to_string(),
+                fp: fp.to_string(),
+            });
+            true
+        }
+        _ => false,
+    }
+}
+
 /// 切换中转服务器：写配置 + 不重启进程重连。Windows 安装版由服务写文件，
 /// 成功后把新地址/指纹/代数随 `AgentStatus` 推回来；其它情况本进程直接写。
 #[tauri::command]
@@ -455,18 +473,7 @@ async fn set_relay(
     #[cfg(windows)]
     if state.service_mode {
         let before = state.hub.borrow().relay_epoch;
-        let sv = state.services.lock().unwrap();
-        let sent = if let Some(Hosting::Service(link)) = &sv.host {
-            link.send(winsvc::ipc::ToAgent::SetRelay {
-                server: server.clone(),
-                fp: fp.clone(),
-            });
-            true
-        } else {
-            false
-        };
-        drop(sv);
-        if sent {
+        if send_relay_to_service(&state, &server, &fp) {
             // 服务写成功后会随 AgentStatus 推回更大的 relay_epoch（托盘同步进程内存副本）
             let mut rx = state.hub.subscribe();
             let wait = tokio::time::timeout(Duration::from_secs(8), async {
