@@ -106,8 +106,9 @@ pub struct Settings {
     pub autostart: bool,
     /// 界面语言（`language`）：托盘菜单、控制台里选过的。`None`：没选过，跟随系统语言
     pub language: Option<Lang>,
-    /// 服务器分配的控制码和加密过的密钥（`[code]`），用 [`Settings::code`] 解开
-    saved_code: Option<(i64, String)>,
+    /// 按中转保存的控制码和加密过的密钥：key = 中转地址（`[codes."host:port"]`），用 [`Settings::code`]
+    /// 解开当前中转那一份。旧版只有一份 `[code]`，读取时归到当时配置的中转名下
+    saved_codes: std::collections::HashMap<String, (i64, String)>,
 }
 
 impl Default for Settings {
@@ -117,7 +118,7 @@ impl Default for Settings {
             server_fp: DEFAULT_SERVER_FP.to_string(),
             autostart: true,
             language: None,
-            saved_code: None,
+            saved_codes: std::collections::HashMap::new(),
         }
     }
 }
@@ -126,7 +127,8 @@ impl Settings {
     /// 保存的控制码和取回它用的密钥。密钥只有保存它的账户（安装版是服务里的被控端，SYSTEM）解得开，
     /// 解不开（例如配置文件是从别的电脑拷来的）时返回 `None`：让服务器重新分配一个
     pub fn code(&self) -> Option<Reclaim> {
-        let (code, secret) = self.saved_code.as_ref()?;
+        // 只取当前中转那一份：换了中转就用新中转自己的码，切回来还是原来那个
+        let (code, secret) = self.saved_codes.get(&self.server)?;
         match (u32::try_from(*code), secret::open(secret)) {
             (Ok(code), Ok(secret)) => Some(Reclaim { code, secret }),
             (_, Err(e)) => {
@@ -259,11 +261,29 @@ fn parse(text: &str) -> Result<Settings> {
             warn!("config.toml: unknown language {v:?}, following the system language");
         }
     }
+    // 控制码按中转分开存：切到别的中转再切回来，取回的还是原来那个码
+    if let Some(t) = doc.get("codes").and_then(|v| v.as_table_like()) {
+        for (server, item) in t.iter() {
+            if let Some(e) = item.as_table_like()
+                && let (Some(code), Some(secret)) = (
+                    e.get("code").and_then(|v| v.as_integer()),
+                    e.get("secret").and_then(|v| v.as_str()),
+                )
+            {
+                s.saved_codes
+                    .insert(server.to_string(), (code, secret.to_string()));
+            }
+        }
+    }
+    // 旧版只有一份 `[code]`：归到当时配置的中转名下（下次保存时迁移进 `[codes.*]`）
     if let Some(t) = doc.get("code").and_then(|v| v.as_table_like()) {
         let code = t.get("code").and_then(|v| v.as_integer());
         let secret = t.get("secret").and_then(|v| v.as_str());
         if let (Some(code), Some(secret)) = (code, secret) {
-            s.saved_code = Some((code, secret.to_string()));
+            let server = s.server.clone();
+            s.saved_codes
+                .entry(server)
+                .or_insert((code, secret.to_string()));
         }
     }
     Ok(s)
@@ -623,6 +643,10 @@ fn regenerate(before: Option<&str>) -> Result<DocumentMut> {
             to.insert(k, v.clone());
         }
     }
+    // 各中转各自的控制码：整表搬走，文件被删掉再重建时也不能丢（否则切回去要重新分配）
+    if let Some(item) = old.get("codes").filter(|i| i.is_table()) {
+        doc["codes"] = item.clone();
+    }
     // 记下的服务器指纹：不重新记（重新记的话，那一次连接就防不了中间人）
     if let Some((server, fp)) = old.get("server_trust").and_then(|t| {
         let server = t.get("server")?.as_str()?.to_string();
@@ -791,18 +815,42 @@ pub fn freeze() {
     FROZEN.store(true, std::sync::atomic::Ordering::Release);
 }
 
-/// 保存服务器分配的控制码；`None` 表示放弃了原来的控制码（下次启动时重新分配）
+/// 保存服务器分配的控制码；`None` 表示放弃了原来的控制码（下次启动时重新分配）。
+/// 写进**当前中转**名下（`[codes."host:port"]`）：切到别的中转再切回来，取回的还是原来那个码。
 pub fn save_code(code: Option<Reclaim>) -> Result<()> {
+    let server = settings().server.clone();
     edit(|doc| {
+        let sealed = match &code {
+            Some(r) => Some((i64::from(r.code), secret::seal(&r.secret)?)),
+            None => None,
+        };
+        // 各中转各一份
+        let codes = doc
+            .entry("codes")
+            .or_insert_with(toml_edit::table)
+            .as_table_mut()
+            .ok_or_else(|| anyhow::anyhow!("`codes` in config.toml must be a table"))?;
+        match &sealed {
+            Some((code, secret)) => {
+                let mut t = toml_edit::Table::new();
+                t["code"] = toml_edit::value(*code);
+                t["secret"] = toml_edit::value(secret.clone());
+                codes.insert(server.as_str(), toml_edit::Item::Table(t));
+            }
+            None => {
+                codes.remove(server.as_str());
+            }
+        }
+        // 兼容旧版：`[code]` 始终是当前中转那一份
         let table = doc
             .entry("code")
-            .or_insert(toml_edit::table())
+            .or_insert_with(toml_edit::table)
             .as_table_mut()
             .ok_or_else(|| anyhow::anyhow!("`code` in config.toml must be a table"))?;
-        match code {
-            Some(r) => {
-                table["code"] = toml_edit::value(i64::from(r.code));
-                table["secret"] = toml_edit::value(secret::seal(&r.secret)?);
+        match sealed {
+            Some((code, secret)) => {
+                table["code"] = toml_edit::value(code);
+                table["secret"] = toml_edit::value(secret);
             }
             None => {
                 table.remove("code");
