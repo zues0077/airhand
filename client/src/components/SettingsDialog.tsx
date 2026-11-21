@@ -1,6 +1,6 @@
 // 软件内的中转设置：地址、证书指纹都在这里改，不用再打开安装目录里的 config.toml。
 // 只在桌面版显示（网页版没有这个入口，也没有 set_relay 命令）。
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, type Problem } from "../lib/api";
 import { useT } from "../lib/i18n";
 import { problemText } from "../lib/messages";
@@ -46,6 +46,14 @@ export function SettingsDialog() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [done, setDone] = useState(false);
+  // 切换成功后关闭控制台窗口的定时器（用户点"取消"时取消它，别把人正在看的窗口关掉）
+  const closeTimer = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (closeTimer.current !== null) clearTimeout(closeTimer.current);
+    },
+    [],
+  );
 
   // 每次打开都用当前生效值回填
   useEffect(() => {
@@ -57,7 +65,13 @@ export function SettingsDialog() {
   }, [open, app?.server, app?.serverFp]);
 
   if (!open) return null;
-  const close = () => store.setRelayDialog(false);
+  const close = () => {
+    if (closeTimer.current !== null) {
+      clearTimeout(closeTimer.current);
+      closeTimer.current = null;
+    }
+    store.setRelayDialog(false);
+  };
 
   const apply = async (s: string, f: string) => {
     const server = s.trim();
@@ -81,6 +95,11 @@ export function SettingsDialog() {
       setServer(fresh.server);
       setFp(fresh.serverFp ?? "");
       setDone(true);
+      // 切换中转后服务端会结束当前控制台会话（见 console.rs 里监听 relay_epoch 的那段）：
+      // 画面停在最后一帧、点哪都没反应，看起来像卡死。桌面版主动关掉控制台窗口（回到被控端模式），
+      // 用户重新打开控制台时就会用新中转连接；网页版没有窗口可关，提示刷新页面。
+      const frame = api.frame;
+      if (frame) closeTimer.current = window.setTimeout(() => void frame.destroy(), 1500);
     } catch (e) {
       setError(problemText(e as Problem));
     } finally {
@@ -157,7 +176,9 @@ export function SettingsDialog() {
 
         <p className="relay-warn">{t("relay.notice")}</p>
         {error && <p className="relay-error">{error}</p>}
-        {done && <p className="relay-done">{t("relay.done")}</p>}
+        {done && (
+          <p className="relay-done">{t(api.frame ? "relay.doneClosing" : "relay.doneRefresh")}</p>
+        )}
 
         <div className="modal-actions">
           <button className="ghost-btn" onClick={close}>

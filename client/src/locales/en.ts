@@ -47,10 +47,12 @@ const en: Record<MsgKey, Msg> = {
   "relay.fpPlaceholder": "64 hex digits; empty = trust on first use",
   "relay.fpHint": "Hex digits only; colons and spaces are ignored",
   "relay.serverHint": "Use host:port (UDP), without https://",
-  "relay.notice": "Switching disconnects the current session. The control code stays the same, but your devices need to be paired again on the new relay.",
+  "relay.notice": "Switching ends the current session and this console session. The control code is assigned by the relay and may change after switching; your devices need to be paired again on the new relay.",
   "relay.apply": "Save and apply",
   "relay.applying": "Applying…",
   "relay.done": "Applied",
+  "relay.doneClosing": "Applied. This console is closing; open it again to connect through the new relay",
+  "relay.doneRefresh": "Applied. Reload the page to use the new relay",
   "relay.invalidServer": "Invalid address, expected host:port (port 1–65535)",
   "relay.invalidFp": "The fingerprint must be 64 hex digits or empty",
 

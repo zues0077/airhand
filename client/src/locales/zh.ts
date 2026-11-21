@@ -50,10 +50,12 @@ export default {
   "relay.fpPlaceholder": "64 位十六进制；留空 = 首次连接时信任",
   "relay.fpHint": "只允许十六进制，冒号和空格会被忽略",
   "relay.serverHint": "填 host:port（UDP），不要带 https://",
-  "relay.notice": "切换会断开当前连接。控制码不变，但「我的设备」需要在新的中转上重新配对。",
+  "relay.notice": "切换会结束当前连接和控制台会话。控制码由中转分配，切换后可能变化；「我的设备」需要在新的中转上重新配对。",
   "relay.apply": "保存并应用",
   "relay.applying": "正在应用…",
   "relay.done": "已生效",
+  "relay.doneClosing": "已生效，控制台即将关闭；重新打开后就会用新中转连接",
+  "relay.doneRefresh": "已生效，请刷新页面以使用新中转",
   "relay.invalidServer": "地址格式不对，应为 host:port（端口 1–65535）",
   "relay.invalidFp": "证书指纹必须是 64 位十六进制，或留空",
 
